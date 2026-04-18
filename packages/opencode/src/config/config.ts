@@ -283,6 +283,7 @@ type State = {
 export interface Interface {
   readonly get: () => Effect.Effect<Info>
   readonly getGlobal: () => Effect.Effect<Info>
+  readonly getGlobalWithOverrides: () => Effect.Effect<Info>
   readonly getConsoleState: () => Effect.Effect<ConsoleState>
   readonly update: (config: Info) => Effect.Effect<void>
   readonly updateGlobal: (config: Info) => Effect.Effect<Info>
@@ -483,6 +484,40 @@ export const layer = Layer.effect(
 
     const getGlobal = Effect.fn("Config.getGlobal")(function* () {
       return yield* cachedGlobal
+    })
+
+    const [cachedGlobalWithOverrides, invalidateGlobalWithOverrides] = yield* Effect.cachedInvalidateWithTTL(
+      Effect.gen(function* () {
+        let result = yield* cachedGlobal
+
+        const configPath = process.env["OPENCODE_CONFIG"]
+        if (configPath) {
+          result = mergeConfigConcatArrays(result, yield* loadFile(configPath))
+          log.debug("loaded custom config", { path: configPath })
+        }
+
+        const configContent = process.env["OPENCODE_CONFIG_CONTENT"]
+        if (configContent) {
+          const next = yield* loadConfig(configContent, {
+            dir: process.cwd(),
+            source: "OPENCODE_CONFIG_CONTENT",
+          })
+          result = mergeConfigConcatArrays(result, next)
+          log.debug("loaded custom config from OPENCODE_CONFIG_CONTENT")
+        }
+
+        return result
+      }).pipe(
+        Effect.tapError((error) =>
+          Effect.sync(() => log.error("failed to load global config with overrides, using defaults", { error: String(error) })),
+        ),
+        Effect.orElseSucceed((): Info => ({})),
+      ),
+      Duration.infinity,
+    )
+
+    const getGlobalWithOverrides = Effect.fn("Config.getGlobalWithOverrides")(function* () {
+      return yield* cachedGlobalWithOverrides
     })
 
     const ensureGitignore = Effect.fn("Config.ensureGitignore")(function* (dir: string) {
@@ -781,6 +816,7 @@ export const layer = Layer.effect(
 
     const invalidate = Effect.fn("Config.invalidate")(function* (wait?: boolean) {
       yield* invalidateGlobal
+      yield* invalidateGlobalWithOverrides
       const task = Instance.disposeAll()
         .catch(() => undefined)
         .finally(() =>
@@ -820,6 +856,7 @@ export const layer = Layer.effect(
     return Service.of({
       get,
       getGlobal,
+      getGlobalWithOverrides,
       getConsoleState,
       update,
       updateGlobal,

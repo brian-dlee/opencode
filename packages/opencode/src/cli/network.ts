@@ -37,7 +37,7 @@ export function withNetworkOptions<T>(yargs: Argv<T>) {
   return yargs.options(options)
 }
 export async function resolveNetworkOptions(args: NetworkOptions) {
-  const config = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.getGlobal()))
+  const config = await AppRuntime.runPromise(Config.Service.use((cfg) => cfg.getGlobalWithOverrides()))
   return resolveNetworkOptionsNoConfig(args, config)
 }
 
